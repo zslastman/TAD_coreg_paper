@@ -169,6 +169,8 @@ allgenetpmmat[,]%>%as_tibble(rownames='gene')%>%write_tsv('gene_count_table.tsv'
 system('gzip gene_count_table.tsv')
 normalizePath('gene_count_table.tsv.gz')%>%message
 
+stop()
+
 nallgenetpmmat = DESeq2::vst(allgenetpmmat)
 
 rownorm <-function(x) x %>%sweep(.,MARGIN=2,F='/',STAT=)

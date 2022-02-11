@@ -180,7 +180,7 @@ for(tadsourcenm in names(tadfiles)){
 
 		tad_dist_df = tad_dist_df_allgenes%>%filter(i%in%ubiq_set,j%in%ubiq_set)	
 		for(tadsetnm in tadsetnms){
-
+			if(is.null(tadpairlist[[tadsourcenm]]))tadpairlist[[tadsourcenm]]=list()
 			vsdstatus = ifelse(use_vsd,'withVSD_','noVSD_')
 			runfolder = paste0('plots/',
 				'ugrp_',ubiq_setnm,'_',
@@ -219,21 +219,23 @@ for(tadsourcenm in names(tadfiles)){
 				)
 			}
 			#
-			manum = 5e3
+			manum = 2e3
 			#
-			make_tadfreq_dplot<-function(matad_dist_df,runfolder,highcorlim,tadsizecol,manum,lowcorcol,highcorcol){
+			make_tadfreq_dplot<-function(matad_dist_df,runfolder,highcorlim,tadsizecol,manum,lowcorcol,highcorcol,pwidth=7){
+				if(!'tadsrc'%in%colnames(matad_dist_df))matad_dist_df$tadsrc='.'
 				library(zoo)
 				plotfile<-here(paste0(runfolder,'allpair_flip_cutoff_ma','.pdf'))
-				pdf(plotfile)
+				pdf(plotfile,width=pwidth)
 				plot = matad_dist_df%>%
 					ungroup%>%
 					filter(log10(dist)<6)%>%
-					group_by(highcor)%>%
+					group_by(highcor,tadsrc)%>%
 					arrange(dist,by_group=TRUE)%>%
 					mutate(tprop = rollmean(tad,manum,na.pad=TRUE))%>%
 					ggplot(.,aes(x=log10(dist),y = tprop,color=highcor))+
 					scale_color_manual(values=c('FALSE'=lowcorcol,'TRUE'=highcorcol))+
 					geom_line()+
+					facet_grid(.~tadsrc)+
 					coord_cartesian(xlim=c(4.5,6))+
 					scale_y_continuous('proportion of genes sharing TADs\n(moving average of 10k genes)')+
 					ggtitle(paste0('Tad comembership prob as a function of distance,\nw vs without highcor\nmoving average ',manum,' points'))+
@@ -256,9 +258,10 @@ for(tadsourcenm in names(tadfiles)){
 			# matad_dist_df <- matcheddistdf
 			matad_dist_df %>% make_tadfreq_dplot(runfolder,highcorlim,tadsizecol,manum,lowcorcol,highcorcol)
 			#
-			if(ubiq_setnm=='all')tadpairlist[[tadsourcenm]]=matad_dist_df%>%filter(tadgrp==tadgrp_pos)
+			if(ubiq_setnm=='all'){tadpairlist[[tadsourcenm]][[tadsetnm]]=matad_dist_df%>%filter(tadgrp!='All')}
 			#	
 			make_highcorfreq_plot<-function(matad_dist_df,runfolder,tadgrpcols){
+				if(!'tadsrc'%in%colnames(matad_dist_df))matad_dist_df$tadsrc='.'
 				library(zoo)
 				plotfile<-here(paste0(runfolder,'allpair_ma','.pdf'))
 				pdf(plotfile)
@@ -269,6 +272,7 @@ for(tadsourcenm in names(tadfiles)){
 					mutate(cprop = rollmean(cor>highcorlim,manum,na.pad=TRUE))%>%
 					ggplot(.,aes(x=log10(dist),y = cprop,color=tadgrp))+
 					geom_line()+
+					facet_grid(~tadsrc)+
 					scale_color_manual(values = tadgrpcols)+
 					coord_cartesian(xlim=c(4.5,6))+
 					scale_y_continuous('proportion of coexpressed genes\n(moving average of 10k genes)')+
@@ -278,13 +282,16 @@ for(tadsourcenm in names(tadfiles)){
 				dev.off()
 				message(plotfile)
 			}
+			# if((tadsetnm=='1mb') & (ubiq_setnm=='non_ubiq') & (tadsourcenm=='mm10_ES_50K'))browser()
 			matad_dist_df%>%make_highcorfreq_plot(runfolder,tadgrpcols)
 			# make_matchdistdf<-make_matchdistdf
 			matcheddistdf_alldist <- make_matchdistdf(tad_dist_df,tadsetnm,tadgrpcols)
-			make_coreg_densplots <- function(matcheddistdf_alldist,thirdgrp,filtgrp,highcorlim,runfolder,zoom=F){
+			make_coreg_densplots <- function(matcheddistdf_alldist,thirdgrp=tadgrp_all,filtgrp=tadgrp_nt,highcorlim,runfolder,zoom=F){
 				zoomfun = if(!zoom) NULL else coord_cartesian(xlim=c(highcorlim,1),ylim=c(0,1))
 				zoomnm = if(!zoom) 'NULL' else '_zoom_'
-				#					 
+				#
+				grpsizes = matcheddistdf_alldist%>%filter(!tadgrp==filtgrp)%>%group_by(tadgrp)%>%tally
+				grpsizes= grpsizes%>%apply(1,paste,collapse=':')
 				cordensplot = matcheddistdf_alldist%>%
 					filter(!tadgrp==filtgrp)%>%
 					ggplot(.,aes(x=cor,color=tadgrp))+
@@ -293,7 +300,8 @@ for(tadsourcenm in names(tadfiles)){
 					ggtitle('Distribution of Co-regulation amongst all gene pairs')+
 					zoomfun+
 					geom_vline(xintercept=highcorlim,linetype='dashed')+
-					theme_bw()
+					theme_bw()+
+					geom_text(y=Inf,x=Inf,data=tibble(label=paste0(collapse='\n',grpsizes)),aes(label=label),color=I('black'),vjust='top',hjust='right')
 				ddensplot = matcheddistdf_alldist%>%
 					filter(!tadgrp==filtgrp)%>%
 					ggplot(.,aes(x=log10(dist),color=tadgrp))+
@@ -309,14 +317,12 @@ for(tadsourcenm in names(tadfiles)){
 				dev.off()
 				message(plotfile)
 			}
-			(make_coreg_densplots)(matcheddistdf_alldist,tadgrp_all,tadgrp_nt,highcorlim,runfolder)
-			(make_coreg_densplots)(matcheddistdf_alldist,tadgrp_all,tadgrp_nt,highcorlim,runfolder,zoom=TRUE)
-			(make_coreg_densplots)(matcheddistdf_alldist,tadgrp_nt,tadgrp_all,highcorlim,runfolder)
-			(make_coreg_densplots)(matcheddistdf_alldist,tadgrp_nt,tadgrp_all,highcorlim,runfolder,zoom=TRUE)
+			make_coreg_densplots(matcheddistdf_alldist,tadgrp_all,tadgrp_nt,highcorlim,runfolder)
+			make_coreg_densplots(matcheddistdf_alldist,tadgrp_all,tadgrp_nt,highcorlim,runfolder,zoom=TRUE)
+			make_coreg_densplots(matcheddistdf_alldist,tadgrp_nt,tadgrp_all,highcorlim,runfolder)
+			make_coreg_densplots(matcheddistdf_alldist,tadgrp_nt,tadgrp_all,highcorlim,runfolder,zoom=TRUE)
 			#
-			make_tad_fracbarplot <- function(tad_dist_df){
-				#
-				tadcoregtbl <- table(cor = tad_dist_df$highcor,tad = tad_dist_df$tad)
+			make_tad_fracbarplot <- function(tadcoregtbl,plotname,pcnum=100,ptitle='Fraction of TAD-sharing genes, given shared chromosome'){
 				#
 				nco_nt = tadcoregtbl[1,2] / sum(tadcoregtbl[1,])
 				nco_t = tadcoregtbl[2,2] / sum(tadcoregtbl[2,])
@@ -325,30 +331,48 @@ for(tadsourcenm in names(tadfiles)){
 					coregulation = c('not co-expressed','co-expressed')%>%as_factor,
 					within_tad = c(nco_nt,nco_t)
 				)
-				brks = tadfracdf$within_tad%>%multiply_by(100)%>%max%>%ceiling%>%{0:.}%>%divide_by(100)
-				labs = tadfracdf$within_tad%>%multiply_by(100)%>%max%>%ceiling%>%{0:.}%>%paste0(.,'%')
+				# if(pcnum==1000)pcstr = paste0('%','0.') else pcstr='%'
+				brks = tadfracdf$within_tad%>%multiply_by(pcnum)%>%max%>%ceiling%>%{0:.}%>%divide_by(pcnum)
+				labs = tadfracdf$within_tad%>%multiply_by(pcnum)%>%max%>%ceiling%>%{0:.}%>%paste0(.,'%')
 				#now plot
-				plotfile<-here(paste0(runfolder,'coexpr_barplot','.pdf'))
+				plotfile<-here(paste0(runfolder,plotname,'.pdf'))
 				pdf(plotfile)
 				print(
 					tadfracdf%>%ggplot(aes(x=coregulation,y=within_tad,fill=coregulation))+
 					stat_identity(geom='bar')+
 					scale_fill_manual(values=c(lowcorcol,highcorcol))+
-					scale_y_continuous(name='Fraction of Pairs Sharing a TAD',breaks=brks,labels=labs)+
-					ggtitle('Fraction of TAD-sharing genes, given shared chromosome')+
+					# scale_y_continuous(name='Fraction of Pairs Sharing a TAD',breaks=brks,labels=labs)+
+					scale_y_continuous(name='Fraction of Pairs Sharing a TAD')+
+					ggtitle(ptitle)+
 					theme_bw()
 					)
 				dev.off()
 				message(normalizePath(plotfile))
-			}	
-			tad_dist_df %>% make_tad_fracbarplot()
+			}
+			tadcoregtbl <- table(cor = tad_dist_df$highcor,tad = tad_dist_df$tad)
+			tadcoregtbl %>% make_tad_fracbarplot('coexpr_barplot')
+			if(tadsetnm=='1mb'){
+				tadmat = btad_coincidenmat
+			}else{
+				tadmat = tad_coincidenmat
+			}
+			#tad on columns of this matrix
+			sampgenes = rownames(highcormat)%>%sample(5e3)
+			tadcoregtbl2 = c(
+				sum((!highcormat[sampgenes,sampgenes])&(!tadmat[sampgenes,sampgenes])),
+				sum((highcormat[sampgenes,sampgenes])&(!tadmat[sampgenes,sampgenes])),
+				sum((!highcormat[sampgenes,sampgenes])&(tadmat[sampgenes,sampgenes])),
+				sum((highcormat[sampgenes,sampgenes])&(tadmat[sampgenes,sampgenes]))
+			)%>%matrix(ncol=2)
+			tadcoregtbl2%>%sweep(1,STAT=rowSums(.),FUN='/')
+			tadcoregtbl2 %>% make_tad_fracbarplot('allpairs_coexpr_barplot',ptitle='Fraction of TAD-sharing genes')
 	}
 }
 }
 
+stop()
 #
-tadsourcecomplist = tadpairlist%>%bind_rows(.id='tadsrc')
-#
+
 tadsourcecols = c(
 	"mESC"='lightpink',
 	"Neuron_Cortical"='red',
@@ -356,12 +380,69 @@ tadsourcecols = c(
 	"mm10_E114limb_Q30_50K"='blue',
 	"mm10_ES_50K"='darkblue')           
 #
+# tadsourcecols = c("mm10_CN_50K_Within TAD"='#FF0000',
+# 	"mm10_CN_50K_Not Within (any) TAD\n(distance matched)" = '#880000',
+# "mm10_CN_50K_Non TAD" = '#220000', 
+# "mm10_E114limb_Q30_50K_Within TAD" = '#00FF00', 
+# "mm10_E114limb_Q30_50K_Not Within (any) TAD\n(distance matched)" = '#008800',
+# "mm10_E114limb_Q30_50K_Non TAD" = '#002200', 
+# "mm10_ES_50K_Within TAD" = '#0000FF', 
+# "mm10_ES_50K_Not Within (any) TAD\n(distance matched)" = '#000088',
+# "mm10_ES_50K_Non TAD" = '#000022'
+# )
+make_highcorfreq_comp_plot <- function(matad_dist_df,runfolder,tadgrpcols){
+                # if(!'tadsrc'%in%colnames(matad_dist_df))matad_dist_df$tadsrc='.'
+                library(zoo)
+                plotfile<-here(paste0(runfolder,'allpair_ma','.pdf'))
+                pdf(plotfile,w=21,h=7)
+                ggdf = matad_dist_df%>%
+                    filter(log10(dist)<6)%>%
+                    group_by(tadgrp,tadsrc)%>%
+                    arrange(dist,by_group=TRUE)%>%
+                    mutate(cprop = rollmean(cor>highcorlim,manum,na.pad=TRUE))
+                plot = ggdf%>%
+                    ggplot(.,aes(x=log10(dist),y = cprop,color=tadgrp))+
+                    geom_line()+
+                   # ggplot(.,aes(x=log10(dist),y = as.numeric(cor>highcorlim),color=tadgrp))+
+                    # geom_smooth()+
+                    facet_grid(~tadsrc)+
+                    scale_color_manual(values = tadgrpcols)+
+                    coord_cartesian(xlim=c(4.5,6))+
+                    scale_y_continuous('proportion of coexpressed genes\n(moving average of 10k genes)',limits=c(0,0.6))+
+                    ggtitle(paste0('Tad comembership prob as a function of distance,\nw vs without highcor\nmoving average 5k points'))+
+                    theme_bw()
+                print(plot)
+                dev.off()
+                message(plotfile)
+            }
+
+################################################################################
+########Now print pannelled plots for comparing tad sources
+################################################################################
+manum = 2e3	
 'plots/tadsourcecomp/'%>%dir.create
 #
-tadsourcecomplist%>%
-	mutate(tadgrp=tadsrc)%>%
-	make_highcorfreq_plot('plots/tadsourcecomp/',tadsourcecols)
+for(ubiq_setnm in names(ubiq_sets)){
+	ubiq_set = ubiq_sets[[ubiq_setnm]]
+	for(tadsetnm in tadsetnms){
+		runfolder = paste0('plots/tadsourcecomp/',
+			'ugrp_',ubiq_setnm,'_',
+			'tadsize_',tadsetnm
+		)
+		dir.create(runfolder,showWarn=F,recursive=T)
+		tadsourcecomplist = tadpairlist%>%map(tadsetnm)%>%bind_rows(.id='tadsrc')
+		tadsourcecomplist2 = tadsourcecomplist%>%filter(i%in%ubiq_set,j%in%ubiq_set)	
+		if(tadsetnm=='1mb'){
+					tadsourcecomplist2 = tadsourcecomplist2%>%filter((btad) | (!tad))
+   		}
+		tadsourcecomplist2%>%	
+			make_highcorfreq_comp_plot(runfolder,tadgrpcols)
+		tadsourcecomplist2%>%
+			make_tadfreq_dplot(runfolder,highcorlim,tadsizecol,manum,lowcorcol,highcorcol,pwidth=21)
+		}
+}
 
+save.image(here('data/2_tad_v_dist_plot.Rdata'))
 
 # Definition	RGB colour
 # cor<x?	96,142,202
