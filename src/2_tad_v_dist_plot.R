@@ -1,3 +1,4 @@
+{
 library(rtracklayer)
 library(txtplot)
 library(data.table)
@@ -6,6 +7,9 @@ library(magrittr)
 library(Matrix)
 library(matrixStats)
 library(here)
+library(tidyverse)
+}
+
 select<-dplyr::select
 
 
@@ -82,15 +86,33 @@ for(tadsourcenm in names(tadfiles)){
 	allcors = oallcors[fallgenegr$gene_name,fallgenegr$gene_name]
 	stopifnot(cor(allgenetpmmat2use[g1,],allgenetpmmat2use[g2,])==allcors[g2,g1])
 
-	tadovdf  = fallgenegr%>%resize(1,'start')%>%
+
+	{
+	#deffine the gene tad overlaps in a big df
+	gstarts = fallgenegr%>%resize(1,'start')
+	tadovdf  = gstarts%>%
 		findOverlaps(tadgr)%>%
 		as.data.frame%>%
 		set_colnames(c('gene','tad'))
 	tadovdf$gene_name = fallgenegr$gene_name[tadovdf$gene]
 	tadovdf$is_ubiq = is_ubiq[tadovdf$gene_name]
 	tadovdf$big = tadgr$big[tadovdf$tad]
+
+	#work out distance from the left and right tad boundary for each of these
+	tadovdf$ldist = distance(gstarts[tadovdf$gene],resize(tadgr,1,'start')[tadovdf$tad])
+	tadovdf$rdist = distance(gstarts[tadovdf$gene],resize(tadgr,1,'end')[tadovdf$tad])
+	#define each gene as being a boundary gene
+	tadovdf%<>%group_by(tad)%>%mutate(isredge = rdist ==min(rdist))
+	tadovdf$rdist <- NULL
+	tadovdf%<>%group_by(tad)%>%mutate(isledge = ldist ==min(ldist))
+	tadovdf$ldist <- NULL
+	
+	#Then we can define the pairs as being double boundary genes
 	tadovdfpairs = tadovdf%>%
-		left_join(tadovdf%>%select(tad,gene),suffix=c('','2'),by='tad')
+		left_join(tadovdf%>%select(tad,gene,isledge,isredge,gene_name),suffix=c('','2'),by='tad')
+	tadovdfpairs%<>%mutate(edgepair = (isledge & isredge2) | (isredge & isledge2))
+	tadovdfpairs%<>%select(-isredge,-isledge,-isledge2,-isredge2)
+	}
 
 	# gfat1 = fallgenegr$gene_name%>%str_detect('Fat1')%>%which
 	# zfp42 = fallgenegr$gene_name%>%str_detect('Zfp42$')%>%which
@@ -171,15 +193,20 @@ for(tadsourcenm in names(tadfiles)){
 	})
 	tad_dist_df_allgenes%<>%bind_rows
 	#
-
+	edgepairdf <- tadovdfpairs%>%ungroup%>%filter(edgepair)%>%select(gene_name,gene_name2,edgepair)
+	tad_dist_df_allgenes%<>%left_join(edgepairdf,by=c('i'='gene_name','j'='gene_name2'))
+	tad_dist_df_allgenes$edgepair%<>%replace_na(FALSE)
 
 	tadsetnm = tadsetnms[2]
+	ubiq_setnm = 'non_ubiq'
+
 	for(ubiq_setnm in names(ubiq_sets)){
 
 		ubiq_set=ubiq_sets[[ubiq_setnm]]
 
 		tad_dist_df = tad_dist_df_allgenes%>%filter(i%in%ubiq_set,j%in%ubiq_set)	
 		for(tadsetnm in tadsetnms){
+			{#DEBUG
 			if(is.null(tadpairlist[[tadsourcenm]]))tadpairlist[[tadsourcenm]]=list()
 			vsdstatus = ifelse(use_vsd,'withVSD_','noVSD_')
 			runfolder = paste0('plots/',
@@ -257,6 +284,7 @@ for(tadsourcenm in names(tadfiles)){
 			# matad_dist_df <- filter_bytadsize(matcheddistdf,tadsetnm)
 			# matad_dist_df <- matcheddistdf
 			matad_dist_df %>% make_tadfreq_dplot(runfolder,highcorlim,tadsizecol,manum,lowcorcol,highcorcol)
+
 			#
 			if(ubiq_setnm=='all'){tadpairlist[[tadsourcenm]][[tadsetnm]]=matad_dist_df%>%filter(tadgrp!='All')}
 			#	
@@ -276,14 +304,15 @@ for(tadsourcenm in names(tadfiles)){
 					scale_color_manual(values = tadgrpcols)+
 					coord_cartesian(xlim=c(4.5,6))+
 					scale_y_continuous('proportion of coexpressed genes\n(moving average of 10k genes)')+
-					ggtitle(paste0('Tad comembership prob as a function of distance,\nw vs without highcor\nmoving average 5k points'))+
+					ggtitle(paste0('Coexpression as a function of distance,\nmoving average 5k points'))+
 					theme_bw()
 				print(plot)
 				dev.off()
 				message(plotfile)
 			}
 			# if((tadsetnm=='1mb') & (ubiq_setnm=='non_ubiq') & (tadsourcenm=='mm10_ES_50K'))browser()
-			matad_dist_df%>%make_highcorfreq_plot(runfolder,tadgrpcols)
+			matad_dist_df%>%filter(!edgepair)%>%make_highcorfreq_plot(runfolder,tadgrpcols)
+			}#DEBUG
 			# make_matchdistdf<-make_matchdistdf
 			matcheddistdf_alldist <- make_matchdistdf(tad_dist_df,tadsetnm,tadgrpcols)
 			make_coreg_densplots <- function(matcheddistdf_alldist,thirdgrp=tadgrp_all,filtgrp=tadgrp_nt,highcorlim,runfolder,zoom=F){
@@ -433,7 +462,7 @@ for(ubiq_setnm in names(ubiq_sets)){
 		tadsourcecomplist = tadpairlist%>%map(tadsetnm)%>%bind_rows(.id='tadsrc')
 		tadsourcecomplist2 = tadsourcecomplist%>%filter(i%in%ubiq_set,j%in%ubiq_set)	
 		if(tadsetnm=='1mb'){
-					tadsourcecomplist2 = tadsourcecomplist2%>%filter((btad) | (!tad))
+				tadsourcecomplist2 = tadsourcecomplist2%>%filter((btad) | (!tad))
    		}
 		tadsourcecomplist2%>%	
 			make_highcorfreq_comp_plot(runfolder,tadgrpcols)
@@ -443,6 +472,62 @@ for(ubiq_setnm in names(ubiq_sets)){
 }
 
 save.image(here('data/2_tad_v_dist_plot.Rdata'))
+
+library(strawr)
+{
+fallgenegr_bins = resize(fallgenegr,1,'center')
+hic_res = 10e3
+newpos = start(fallgenegr_bins) %>% `/`(hic_res) %>% round%>%`*`(hic_res)
+fallgenegr_bins = GenomicRanges::shift(fallgenegr_bins,newpos - start(fallgenegr_bins))
+hicchr = '1'
+hicchrnm = paste0('chr',hicchr)
+chrgbins <- fallgenegr_bins%>%subset(seqnames%in%hicchrnm)
+#hic info for that chr
+chrhic <- straw('VC','hicdata/CN_mapq30.hic',chr1loc='1:1-4000000',chr2loc='1:1-4000000','BP',hic_res,matrix='oe')
+#only bins with genes in them 
+chrhic <- chrhic[(chrhic$x %in% start(chrgbins)) & chrhic$y %in% start(chrgbins),]
+genebin <- tibble(x=start(fallgenegr_bins),gene_name=fallgenegr_bins$gene_name)
+}
+
+{
+chr_pairs_hicdf = matad_dist_df%>%
+	filter(dist<1e7)%>%
+	filter(i %in% chrgbins$gene_name)%>%
+	inner_join(genebin,by=c(i='gene_name'))%>%
+	inner_join(genebin%>%select(y=x,gene_name),by=c(j='gene_name'))%>%
+	inner_join(chrhic)
+}
+
+make_pair_tadsig_plot<-function(chr_pairs_hicdf,runfolder,tadgrpcols){
+				if(!'tadsrc'%in%colnames(chr_pairs_hicdf))chr_pairs_hicdf$tadsrc='.'
+				library(zoo)
+				plotfile<-here(paste0(runfolder,'tad_sig_dist','.pdf'))
+				pdf(plotfile)
+				plot = chr_pairs_hicdf%>%
+					filter(log10(dist)<7)%>%
+					group_by(tadgrp)%>%
+					arrange(dist,by_group=TRUE)%>%
+					mutate(tadsig = rollmean(log2(1+counts),1000,na.pad=TRUE))%>%
+					ggplot(.,aes(x=log10(dist),y = tadsig,color=tadgrp))+
+					geom_line()+
+					facet_grid(~tadsrc)+
+					scale_color_manual(values = tadgrpcols)+
+					coord_cartesian(xlim=c(4.5,7))+
+					# scale_y_continuous('mean count count value')+
+					ggtitle(paste0('Tad signal as a function of distance'))+
+					theme_bw()
+				print(plot)
+				dev.off()
+				message(plotfile)
+			}
+make_pair_tadsig_plot(chr_pairs_hicdf,runfolder,tadgrpcols)
+
+
+
+
+
+#oka let's pull info from the hic file
+
 
 # Definition	RGB colour
 # cor<x?	96,142,202
