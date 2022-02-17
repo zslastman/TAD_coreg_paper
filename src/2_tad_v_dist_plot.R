@@ -471,65 +471,6 @@ for(ubiq_setnm in names(ubiq_sets)){
 		}
 }
 
-save.image(here('data/2_tad_v_dist_plot.Rdata'))
-
-library(strawr)
-hicchrs = as.character(1:10)
-
-hicpairdata <- lapply(hicchrs,function(hicchr){
-	message(hicchr)
-	fallgenegr_bins = resize(fallgenegr,1,'center')
-	hic_res = 10e3
-	newpos = start(fallgenegr_bins) %>% `/`(hic_res) %>% round%>%`*`(hic_res)
-	fallgenegr_bins = GenomicRanges::shift(fallgenegr_bins,newpos - start(fallgenegr_bins))
-	hicchrnm = paste0('chr',hicchr)
-	chrgbins <- fallgenegr_bins%>%subset(seqnames%in%hicchrnm)
-	chrgbins <- fallgenegr_bins%>%subset(gene_name %in% c(matad_dist_df$i,matad_dist_df$j))
-	#hic info for that chr
-	chrhic <- straw('VC','hicdata/CN_mapq30.hic',chr1loc=paste0(hicchr,''),
-		chr2loc=paste0(hicchr,''),'BP',hic_res,matrix='oe')
-	#only bins with genes in them 
-	chrhic <- chrhic[(chrhic$x %in% start(chrgbins)) & chrhic$y %in% start(chrgbins),]
-	genebin <- tibble(x=start(chrgbins),gene_name=chrgbins$gene_name)
-	chrhic <- chrhic%>%filter((y - x )<1e7)
-
-	chr_pairs_hicdf = matad_dist_df%>%
-		filter(dist<1e7)%>%
-		filter(i %in% chrgbins$gene_name)%>%
-		inner_join(genebin,by=c(i='gene_name'))%>%
-		inner_join(genebin%>%select(y=x,gene_name),by=c(j='gene_name'))%>%
-		inner_join(chrhic)
-
-	chr_pairs_hicdf
-})
-hicpairdata%<>% bind_rows
-
-hicpairdata%>%nrow
-
-make_pair_tadsig_plot<-function(chr_pairs_hicdf,runfolder,tadgrpcols){
-				if(!'tadsrc'%in%colnames(chr_pairs_hicdf))chr_pairs_hicdf$tadsrc='.'
-				library(zoo)
-				plotfile<-here(paste0(runfolder,'tad_sig_dist','.pdf'))
-				pdf(plotfile)
-				plot = chr_pairs_hicdf%>%
-					filter(log10(dist)<7)%>%
-					group_by(tadgrp)%>%
-					arrange(dist,by_group=TRUE)%>%
-					mutate(tadsig = rollmean(log2(counts),manum*10,na.pad=TRUE))%>%
-					ggplot(.,aes(x=log10(dist),y = tadsig,color=tadgrp))+
-					geom_line()+
-					facet_grid(~tadsrc)+
-					scale_color_manual(values = tadgrpcols)+
-					coord_cartesian(xlim=c(4.5,7))+
-					# scale_y_continuous('mean count count value')+
-					ggtitle(paste0('Tad signal as a function of distance'))+
-					theme_bw()
-				print(plot)
-				dev.off()
-				message(plotfile)
-			}
-make_pair_tadsig_plot(hicpairdata,runfolder,tadgrpcols)
-
 
 
 
