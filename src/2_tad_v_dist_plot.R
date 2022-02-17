@@ -204,7 +204,8 @@ for(tadsourcenm in names(tadfiles)){
 
 		ubiq_set=ubiq_sets[[ubiq_setnm]]
 
-		tad_dist_df = tad_dist_df_allgenes%>%filter(i%in%ubiq_set,j%in%ubiq_set)	
+		tad_dist_df = tad_dist_df_allgenes%>%filter(i%in%ubiq_set,j%in%ubiq_set)
+
 		for(tadsetnm in tadsetnms){
 			{#DEBUG
 			if(is.null(tadpairlist[[tadsourcenm]]))tadpairlist[[tadsourcenm]]=list()
@@ -229,9 +230,9 @@ for(tadsourcenm in names(tadfiles)){
 				if(tadsetnm=='1mb')tadsizecol=sym('btad') else tadsizecol=sym('tad')
 				#
 				distdensfun = tad_dist_df%>%filter(!!tadsizecol)%>%.$dist%>%log10%>%density(.,adjust=0.5)%>%approxfun
-				distdensfun2 = function(x)replace_na(distdensfun(x),0)
-				tadmaxdist =  tad_dist_df%>%filter(!!tadsizecol)%>%.$dist
-				matchedpairs = tad_dist_df%>%filter(!tad,log10(dist)<log10(tadmaxdist))
+				distdensfun2 = function(x)replace_na(distdensfun(x),0)				
+				tadmaxdist =  tad_dist_df%>%filter(!!tadsizecol)%>%.$dist%>%max
+				matchedpairs = tad_dist_df%>%filter(!!tadsizecol)%>%filter(log10(dist)<log10(tadmaxdist))
 				matchedpairs$weight = log10(matchedpairs$dist)%>%distdensfun2
 				#
 				tadnum = tad_dist_df$tad%>%sum

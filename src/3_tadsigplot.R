@@ -19,9 +19,17 @@ hicchrs = as.character(1:19)
 hicchr=hicchrs[1]
 hicfile = 'hicdata/CN_mapq30.hic'
 strawr::readHicChroms(hicfile)
+manum = 2e3
 
-hicpairdata <- lapply(hicchrs,function(hicchr)
-{
+
+ubiq_setnm = 'ubiq'
+ubiq_set=ubiq_sets[[ubiq_setnm]]
+tad_dist_df = tad_dist_df_allgenes%>%filter(i%in%ubiq_set,j%in%ubiq_set)
+matad_dist_df <- make_matchdistdf(tad_dist_df,tadsetnm,tadgrpcols,distfilt = 1e6)%>%
+				filter_bytadsize('1mb')%>%
+				identity
+
+hicpairdata <- lapply(hicchrs,function(hicchr){
 	message(hicchr)
 	fallgenegr_bins = resize(fallgenegr,1,'center')
 	hic_res = 10e3
@@ -51,8 +59,7 @@ hicpairdata <- lapply(hicchrs,function(hicchr)
 	gc()
 	message('.')
 	chr_pairs_hicdf
-}
-)
+})
 hicpairdata %<>% bind_rows
 hicpairdata%>%saveRDS('data/hicpairdata.rds')
 # save.image('data/3_tadsigplot.Rdata')
@@ -77,13 +84,18 @@ hicpairdata$counts%>%is.finite%>%table
 # hicpairdata$dist%>%log10%>%is.finite%>%table
 
 # hicpairdata$counts%<>%pmax()
-
+runfolder = paste0('plots/',
+				'ugrp_',ubiq_setnm,'_',
+				'tadsize_',tadsetnm,'_',
+				'tadsrc_',tadsourcenm,'/'
+			)
+			dir.create(runfolder,showWarn=F,recursive=T)
 {
 chr_pairs_hicdf=hicpairdata
 make_pair_tadsig_plot<-function(chr_pairs_hicdf,runfolder,tadgrpcols){
 				if(!'tadsrc'%in%colnames(chr_pairs_hicdf))chr_pairs_hicdf$tadsrc='.'
 				library(zoo)
-				plotfile<-here(paste0(runfolder,'tad_sig_dist7','.pdf'))
+				plotfile<-here(paste0(runfolder,'tad_sig_dist_',ubiq_setnm,'.pdf'))
 				mymanum=manum
 				pdf(plotfile)
 				plot = chr_pairs_hicdf%>%
